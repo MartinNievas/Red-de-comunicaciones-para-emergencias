@@ -1,6 +1,6 @@
-#include "Tx.h"
-#include "Rx.h"
-#include "Ini.h"
+#include <Tx.h>
+#include <Rx.h>
+#include <Ini.h>
 
 const char NodeID = 'B';
 void Receptor();
