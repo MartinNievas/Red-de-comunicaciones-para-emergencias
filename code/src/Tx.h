@@ -1,13 +1,11 @@
+#include "Bateria.h"
+
 String gps(){
     return "(146,231,22)";
 }
   
 String hora(){
     return "2:07";
-}
-  
-float bateria(){
-    return 0.187;
 }
 
 String mensaje(){
@@ -25,7 +23,10 @@ class PaqueteEnviado{
 
   String GPS(){return gps();}
   String Hora(){return hora();}
-  float Bateria(){return bateria();}
+  float bateria(){
+    Bateria bat; 
+    return bat.Restante();
+    }
   String Mensaje(){return mensaje();}
   
 };
