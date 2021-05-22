@@ -18,17 +18,3 @@ String mensaje(void){
    }
 }
 
-class PaqueteEnviado{
-
-  public:
-
-  String GPS(){return gps();}
-  String Hora(){return hora();}
-  float bateria(){
-    Bateria bat;
-    return bat.Restante();
-    }
-  String Mensaje(){return mensaje();}
-
-};
-
