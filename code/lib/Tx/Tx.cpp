@@ -1,4 +1,3 @@
-#include <Bateria.h>
 #include <Tx.h>
 
 String gps(void){
