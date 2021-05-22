@@ -1,6 +1,2 @@
-#SPI Library for Teensy#
-
-http://www.pjrc.com/teensy/td_libs_SPI.html
-
-![](http://www.pjrc.com/teensy/td_libs_SPI_1.jpg)
-
+# SPI library for ESP32
+[link](https://github.com/espressif/arduino-esp32/tree/master/libraries/SPI)
