@@ -1,3 +1,5 @@
+#include <Bateria.h>
+
 class Bateria {
   private:
      float carga;

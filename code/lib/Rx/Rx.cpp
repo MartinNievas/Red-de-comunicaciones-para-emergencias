@@ -1,3 +1,5 @@
+include <Rx.h>
+
 String Auxiliar(String str, int h){
   int j,i=0,k=0;  
   char aux[5][15]; 
