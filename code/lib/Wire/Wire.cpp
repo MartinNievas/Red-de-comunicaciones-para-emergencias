@@ -1,5 +1,5 @@
 /*
-  TwoWire.cpp - TWI/I2C library for Wiring & Arduino
+  TwoWire.cpp - TWI/I2C library for Arduino & Wiring
   Copyright (c) 2006 Nicholas Zambetti.  All right reserved.
 
   This library is free software; you can redistribute it and/or
@@ -15,327 +15,374 @@
   You should have received a copy of the GNU Lesser General Public
   License along with this library; if not, write to the Free Software
   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
- 
+
   Modified 2012 by Todd Krein (todd@krein.org) to implement repeated starts
-*/
-
-#include <Arduino.h>
-
-#if defined(__AVR__)
-
-#include "Wire.h"
+  Modified December 2014 by Ivan Grokhotkov (ivan@esp8266.com) - esp8266 support
+  Modified April 2015 by Hrsto Gochkov (ficeto@ficeto.com) - alternative esp8266 support
+  Modified Nov 2017 by Chuck Todd (ctodd@cableone.net) - ESP32 ISR Support
+ */
 
 extern "C" {
-  #include <stdlib.h>
-  #include <string.h>
-  #include <inttypes.h>
-  #include "twi.h"
+#include <stdlib.h>
+#include <string.h>
+#include <inttypes.h>
 }
 
+#include "esp32-hal-i2c.h"
+#include "Wire.h"
+#include "Arduino.h"
 
-// Initialize Class Variables //////////////////////////////////////////////////
+TwoWire::TwoWire(uint8_t bus_num)
+    :num(bus_num & 1)
+    ,sda(-1)
+    ,scl(-1)
+    ,i2c(NULL)
+    ,rxIndex(0)
+    ,rxLength(0)
+    ,rxQueued(0)
+    ,txIndex(0)
+    ,txLength(0)
+    ,txAddress(0)
+    ,txQueued(0)
+    ,transmitting(0)
+    ,last_error(I2C_ERROR_OK)
+    ,_timeOutMillis(50)
+{}
 
-uint8_t TwoWire::rxBuffer[BUFFER_LENGTH];
-uint8_t TwoWire::rxBufferIndex = 0;
-uint8_t TwoWire::rxBufferLength = 0;
-
-uint8_t TwoWire::txAddress = 0;
-uint8_t TwoWire::txBuffer[BUFFER_LENGTH];
-uint8_t TwoWire::txBufferIndex = 0;
-uint8_t TwoWire::txBufferLength = 0;
-
-uint8_t TwoWire::transmitting = 0;
-void (*TwoWire::user_onRequest)(void);
-void (*TwoWire::user_onReceive)(int);
-
-// Constructors ////////////////////////////////////////////////////////////////
-
-TwoWire::TwoWire()
+TwoWire::~TwoWire()
 {
+    flush();
+    if(i2c) {
+        i2cRelease(i2c);
+        i2c=NULL;
+    }
 }
 
-// Public Methods //////////////////////////////////////////////////////////////
-
-void TwoWire::begin(void)
+bool TwoWire::setPins(int sdaPin, int sclPin)
 {
-  rxBufferIndex = 0;
-  rxBufferLength = 0;
-
-  txBufferIndex = 0;
-  txBufferLength = 0;
-
-  twi_init();
+    if(i2c) {
+        log_e("can not set pins if begin was already called");
+        return false;
+    }
+    sda = sdaPin;
+    scl = sclPin;
+    return true;
 }
 
-void TwoWire::begin(uint8_t address)
+bool TwoWire::begin(int sdaPin, int sclPin, uint32_t frequency)
 {
-  twi_setAddress(address);
-  twi_attachSlaveTxEvent(onRequestService);
-  twi_attachSlaveRxEvent(onReceiveService);
-  begin();
+    if(sdaPin < 0) { // default param passed
+        if(num == 0) {
+            if(sda==-1) {
+                sdaPin = SDA;    //use Default Pin
+            } else {
+                sdaPin = sda;    // reuse prior pin
+            }
+        } else {
+            if(sda==-1) {
+                log_e("no Default SDA Pin for Second Peripheral");
+                return false; //no Default pin for Second Peripheral
+            } else {
+                sdaPin = sda;    // reuse prior pin
+            }
+        }
+    }
+
+    if(sclPin < 0) { // default param passed
+        if(num == 0) {
+            if(scl == -1) {
+                sclPin = SCL;    // use Default pin
+            } else {
+                sclPin = scl;    // reuse prior pin
+            }
+        } else {
+            if(scl == -1) {
+                log_e("no Default SCL Pin for Second Peripheral");
+                return false; //no Default pin for Second Peripheral
+            } else {
+                sclPin = scl;    // reuse prior pin
+            }
+        }
+    }
+
+    sda = sdaPin;
+    scl = sclPin;
+    i2c = i2cInit(num, sda, scl, frequency);
+    if(!i2c) {
+        return false;
+    }
+
+    flush();
+    return true;
+
 }
 
-void TwoWire::begin(int address)
+void TwoWire::setTimeOut(uint16_t timeOutMillis)
 {
-  begin((uint8_t)address);
+    _timeOutMillis = timeOutMillis;
 }
 
-void TwoWire::end()
+uint16_t TwoWire::getTimeOut()
 {
-  TWCR &= ~(_BV(TWEN) | _BV(TWIE) | _BV(TWEA));
-  digitalWrite(SDA, 0);
-  digitalWrite(SCL, 0);
+    return _timeOutMillis;
 }
 
 void TwoWire::setClock(uint32_t frequency)
 {
-  TWBR = ((F_CPU / frequency) - 16) / 2;
+#if CONFIG_IDF_TARGET_ESP32S2
+    i2c = i2cInit(num, sda, scl, frequency);
+    if(!i2c) {
+        return;
+    }
+#endif
+    i2cSetFrequency(i2c, frequency);
 }
 
-void TwoWire::setSDA(uint8_t pin)
+size_t TwoWire::getClock()
 {
+    return i2cGetFrequency(i2c);
 }
 
-void TwoWire::setSCL(uint8_t pin)
+/* stickBreaker Nov 2017 ISR, and bigblock 64k-1
+ */
+i2c_err_t TwoWire::writeTransmission(uint16_t address, uint8_t *buff, uint16_t size, bool sendStop)
 {
+    last_error = i2cWrite(i2c, address, buff, size, sendStop, _timeOutMillis);
+    return last_error;
 }
 
-uint8_t TwoWire::requestFrom(uint8_t address, uint8_t quantity, uint8_t sendStop)
+i2c_err_t TwoWire::readTransmission(uint16_t address, uint8_t *buff, uint16_t size, bool sendStop, uint32_t *readCount)
 {
-  // clamp to buffer length
-  if(quantity > BUFFER_LENGTH){
-    quantity = BUFFER_LENGTH;
-  }
-  // perform blocking read into buffer
-  uint8_t read = twi_readFrom(address, rxBuffer, quantity, sendStop);
-  // set rx buffer iterator vars
-  rxBufferIndex = 0;
-  rxBufferLength = read;
-
-  return read;
+    last_error = i2cRead(i2c, address, buff, size, sendStop, _timeOutMillis, readCount);
+    return last_error;
 }
 
-uint8_t TwoWire::requestFrom(uint8_t address, uint8_t quantity)
+void TwoWire::beginTransmission(uint16_t address)
 {
-  return requestFrom((uint8_t)address, (uint8_t)quantity, (uint8_t)true);
+    transmitting = 1;
+    txAddress = address;
+    txIndex = txQueued; // allow multiple beginTransmission(),write(),endTransmission(false) until endTransmission(true)
+    txLength = txQueued;
+    last_error = I2C_ERROR_OK;
 }
 
-uint8_t TwoWire::requestFrom(int address, int quantity)
+/*stickbreaker isr
+ */
+uint8_t TwoWire::endTransmission(bool sendStop)  // Assumes Wire.beginTransaction(), Wire.write()
 {
-  return requestFrom((uint8_t)address, (uint8_t)quantity, (uint8_t)true);
+    if(transmitting == 1) {
+            // txlength is howmany bytes in txbuffer have been use
+        last_error = writeTransmission(txAddress, &txBuffer[txQueued], txLength - txQueued, sendStop);
+        if(last_error == I2C_ERROR_CONTINUE){
+            txQueued = txLength;
+        } else if( last_error == I2C_ERROR_OK){
+          rxIndex = 0;
+          rxLength = rxQueued;
+          rxQueued = 0;
+          txQueued = 0; // the SendStop=true will restart all Queueing
+        }
+    } else {
+        last_error = I2C_ERROR_NO_BEGIN;
+        flush();
+    }
+    txIndex = 0;
+    txLength = 0;
+    transmitting = 0;
+    return (last_error == I2C_ERROR_CONTINUE)?I2C_ERROR_OK:last_error; // Don't return Continue for compatibility.
 }
 
-uint8_t TwoWire::requestFrom(int address, int quantity, int sendStop)
+/* @stickBreaker 11/2017 fix for ReSTART timeout, ISR
+ */
+uint8_t TwoWire::requestFrom(uint16_t address, uint8_t size, bool sendStop)
 {
-  return requestFrom((uint8_t)address, (uint8_t)quantity, (uint8_t)sendStop);
+    //use internal Wire rxBuffer, multiple requestFrom()'s may be pending, try to share rxBuffer
+    uint32_t cnt = rxQueued; // currently queued reads, next available position in rxBuffer
+    if(cnt < (I2C_BUFFER_LENGTH-1) && (size + cnt) <= I2C_BUFFER_LENGTH) { // any room left in rxBuffer
+        rxQueued += size;
+    } else { // no room to receive more!
+        log_e("rxBuff overflow %d", cnt + size);
+        cnt = 0;
+        last_error = I2C_ERROR_MEMORY;
+        flush();
+        return cnt;
+    }
+
+    last_error = readTransmission(address, &rxBuffer[cnt], size, sendStop, &cnt);
+    rxIndex = 0;
+  
+    rxLength = cnt;
+  
+    if( last_error != I2C_ERROR_CONTINUE){ // not a  buffered ReSTART operation
+      // so this operation actually moved data, queuing is done.
+        rxQueued = 0;
+        txQueued = 0; // the SendStop=true will restart all Queueing or error condition
+    }
+  
+    if(last_error != I2C_ERROR_OK){ // ReSTART on read does not return any data
+        cnt = 0;
+    }
+  
+    return cnt;
 }
 
-uint8_t TwoWire::requestFrom(uint8_t addr, uint8_t qty, uint32_t iaddr, uint8_t n, uint8_t stop)
-{
-	if (n > 0) {
-		union { uint32_t ul; uint8_t b[4]; } iaddress;
-		iaddress.ul = iaddr;
-		beginTransmission(addr);
-		if (n > 3) n = 3;
-		do {
-			n = n - 1;
-			write(iaddress.b[n]);
-		} while (n > 0);
-		endTransmission(false);
-	}
-	if (qty > BUFFER_LENGTH) qty = BUFFER_LENGTH;
-	return requestFrom(addr, qty, stop);
-}
-
-void TwoWire::beginTransmission(uint8_t address)
-{
-  // indicate that we are transmitting
-  transmitting = 1;
-  // set address of targeted slave
-  txAddress = address;
-  // reset tx buffer iterator vars
-  txBufferIndex = 0;
-  txBufferLength = 0;
-}
-
-void TwoWire::beginTransmission(int address)
-{
-  beginTransmission((uint8_t)address);
-}
-
-//
-//	Originally, 'endTransmission' was an f(void) function.
-//	It has been modified to take one parameter indicating
-//	whether or not a STOP should be performed on the bus.
-//	Calling endTransmission(false) allows a sketch to 
-//	perform a repeated start. 
-//
-//	WARNING: Nothing in the library keeps track of whether
-//	the bus tenure has been properly ended with a STOP. It
-//	is very possible to leave the bus in a hung state if
-//	no call to endTransmission(true) is made. Some I2C
-//	devices will behave oddly if they do not see a STOP.
-//
-uint8_t TwoWire::endTransmission(uint8_t sendStop)
-{
-  // transmit buffer (blocking)
-  int8_t ret = twi_writeTo(txAddress, txBuffer, txBufferLength, 1, sendStop);
-  // reset tx buffer iterator vars
-  txBufferIndex = 0;
-  txBufferLength = 0;
-  // indicate that we are done transmitting
-  transmitting = 0;
-  return ret;
-}
-
-//	This provides backwards compatibility with the original
-//	definition, and expected behaviour, of endTransmission
-//
-uint8_t TwoWire::endTransmission(void)
-{
-  return endTransmission(true);
-}
-
-// must be called in:
-// slave tx event callback
-// or after beginTransmission(address)
 size_t TwoWire::write(uint8_t data)
 {
-  if(transmitting){
-  // in master transmitter mode
-    // don't bother if buffer is full
-    if(txBufferLength >= BUFFER_LENGTH){
-      setWriteError();
-      return 0;
+    if(transmitting) {
+        if(txLength >= I2C_BUFFER_LENGTH) {
+            last_error = I2C_ERROR_MEMORY;
+            return 0;
+        }
+        txBuffer[txIndex] = data;
+        ++txIndex;
+        txLength = txIndex;
+        return 1;
     }
-    // put byte in tx buffer
-    txBuffer[txBufferIndex] = data;
-    ++txBufferIndex;
-    // update amount in buffer   
-    txBufferLength = txBufferIndex;
-  }else{
-  // in slave send mode
-    // reply to master
-    twi_transmit(&data, 1);
-  }
-  return 1;
+    last_error = I2C_ERROR_NO_BEGIN; // no begin, not transmitting
+    return 0;
 }
 
-// must be called in:
-// slave tx event callback
-// or after beginTransmission(address)
 size_t TwoWire::write(const uint8_t *data, size_t quantity)
 {
-  if(transmitting){
-  // in master transmitter mode
-    for(size_t i = 0; i < quantity; ++i){
-      write(data[i]);
+    for(size_t i = 0; i < quantity; ++i) {
+        if(!write(data[i])) {
+            return i;
+        }
     }
-  }else{
-  // in slave send mode
-    // reply to master
-    twi_transmit(data, quantity);
-  }
-  return quantity;
+    return quantity;
+
 }
 
-// must be called in:
-// slave rx event callback
-// or after requestFrom(address, numBytes)
 int TwoWire::available(void)
 {
-  return rxBufferLength - rxBufferIndex;
+    int result = rxLength - rxIndex;
+    return result;
 }
 
-// must be called in:
-// slave rx event callback
-// or after requestFrom(address, numBytes)
 int TwoWire::read(void)
 {
-  int value = -1;
-  
-  // get each successive byte on each call
-  if(rxBufferIndex < rxBufferLength){
-    value = rxBuffer[rxBufferIndex];
-    ++rxBufferIndex;
-  }
-
-  return value;
+    int value = -1;
+    if(rxIndex < rxLength) {
+        value = rxBuffer[rxIndex];
+        ++rxIndex;
+    }
+    return value;
 }
 
-// must be called in:
-// slave rx event callback
-// or after requestFrom(address, numBytes)
 int TwoWire::peek(void)
 {
-  int value = -1;
-  
-  if(rxBufferIndex < rxBufferLength){
-    value = rxBuffer[rxBufferIndex];
-  }
-
-  return value;
+    int value = -1;
+    if(rxIndex < rxLength) {
+        value = rxBuffer[rxIndex];
+    }
+    return value;
 }
 
 void TwoWire::flush(void)
 {
-  // XXX: to be implemented.
+    rxIndex = 0;
+    rxLength = 0;
+    txIndex = 0;
+    txLength = 0;
+    rxQueued = 0;
+    txQueued = 0;
+    i2cFlush(i2c); // cleanup
 }
 
-// behind the scenes function that is called when data is received
-void TwoWire::onReceiveService(uint8_t* inBytes, int numBytes)
+uint8_t TwoWire::requestFrom(uint8_t address, uint8_t quantity, uint8_t sendStop)
 {
-  // don't bother if user hasn't registered a callback
-  if(!user_onReceive){
-    return;
-  }
-  // don't bother if rx buffer is in use by a master requestFrom() op
-  // i know this drops data, but it allows for slight stupidity
-  // meaning, they may not have read all the master requestFrom() data yet
-  if(rxBufferIndex < rxBufferLength){
-    return;
-  }
-  // copy twi rx buffer into local read buffer
-  // this enables new reads to happen in parallel
-  for(uint8_t i = 0; i < numBytes; ++i){
-    rxBuffer[i] = inBytes[i];    
-  }
-  // set rx iterator vars
-  rxBufferIndex = 0;
-  rxBufferLength = numBytes;
-  // alert user program
-  user_onReceive(numBytes);
+    return requestFrom(static_cast<uint16_t>(address), static_cast<size_t>(quantity), static_cast<bool>(sendStop));
 }
 
-// behind the scenes function that is called when data is requested
-void TwoWire::onRequestService(void)
+uint8_t TwoWire::requestFrom(uint16_t address, uint8_t quantity, uint8_t sendStop)
 {
-  // don't bother if user hasn't registered a callback
-  if(!user_onRequest){
-    return;
-  }
-  // reset tx buffer iterator vars
-  // !!! this will kill any pending pre-master sendTo() activity
-  txBufferIndex = 0;
-  txBufferLength = 0;
-  // alert user program
-  user_onRequest();
+    return requestFrom(address, static_cast<size_t>(quantity), static_cast<bool>(sendStop));
 }
 
-// sets function called on slave write
-void TwoWire::onReceive( void (*function)(int) )
+uint8_t TwoWire::requestFrom(uint8_t address, uint8_t quantity)
 {
-  user_onReceive = function;
+    return requestFrom(static_cast<uint16_t>(address), static_cast<size_t>(quantity), true);
 }
 
-// sets function called on slave read
-void TwoWire::onRequest( void (*function)(void) )
+uint8_t TwoWire::requestFrom(uint16_t address, uint8_t quantity)
 {
-  user_onRequest = function;
+    return requestFrom(address, static_cast<size_t>(quantity), true);
 }
 
-// Preinstantiate Objects //////////////////////////////////////////////////////
+uint8_t TwoWire::requestFrom(int address, int quantity)
+{
+    return requestFrom(static_cast<uint16_t>(address), static_cast<size_t>(quantity), true);
+}
 
-TwoWire Wire = TwoWire();
+uint8_t TwoWire::requestFrom(int address, int quantity, int sendStop)
+{
+    return static_cast<uint8_t>(requestFrom(static_cast<uint16_t>(address), static_cast<size_t>(quantity), static_cast<bool>(sendStop)));
+}
 
-#endif // __AVR__
+void TwoWire::beginTransmission(int address)
+{
+    beginTransmission(static_cast<uint16_t>(address));
+}
+
+void TwoWire::beginTransmission(uint8_t address)
+{
+    beginTransmission(static_cast<uint16_t>(address));
+}
+
+uint8_t TwoWire::endTransmission(void)
+{
+    return endTransmission(true);
+}
+
+/* stickbreaker Nov2017 better error reporting
+ */
+uint8_t TwoWire::lastError()
+{
+    return (uint8_t)last_error;
+}
+
+const char ERRORTEXT[] =
+    "OK\0"
+    "DEVICE\0"
+    "ACK\0"
+    "TIMEOUT\0"
+    "BUS\0"
+    "BUSY\0"
+    "MEMORY\0"
+    "CONTINUE\0"
+    "NO_BEGIN\0"
+    "\0";
+
+
+char * TwoWire::getErrorText(uint8_t err)
+{
+    uint8_t t = 0;
+    bool found = false;
+    char * message = (char*)&ERRORTEXT;
+
+    while(!found && message[0]) {
+        found = t == err;
+        if(!found) {
+            message = message + strlen(message) + 1;
+            t++;
+        }
+    }
+    if(!found) {
+        return NULL;
+    } else {
+        return message;
+    }
+}
+
+/*stickbreaker Dump i2c Interrupt buffer, i2c isr Debugging
+ */
+ 
+uint32_t TwoWire::setDebugFlags( uint32_t setBits, uint32_t resetBits){
+  return i2cDebug(i2c,setBits,resetBits);
+}
+
+bool TwoWire::busy(void){
+  return ((i2cGetStatus(i2c) & 16 )==16);
+}
+
+TwoWire Wire = TwoWire(0);
+TwoWire Wire1 = TwoWire(1);
