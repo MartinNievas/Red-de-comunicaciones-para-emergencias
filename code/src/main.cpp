@@ -1,53 +1,52 @@
-#include <Arduino.h>
-#include <Tx.h>
-#include <Rx.h>
-#include <Ini.h>
+#include <Paquete.h>
+#include <Config.h>
 
-const char NodeID = 'B';
-void Receptor();
-void Transmisor();
+void Recepcion (void);
+void Transmision(void);
+void Imprimir (String);
 
 void loop() {
   delay(2000);
-  if(receivedFlag) {
-    enableInterrupt = false;
-    receivedFlag = false;
-    Receptor();
-    enableInterrupt = true;
-  }
-  Transmisor();
+  Recepcion();
+  Transmision();
+}
+
+void Transmision(void){
+  Paquete tx;
+  String pqt=tx.Enviar(NodeID,"\"Todo OK\"");
+  radio.transmit(pqt);
   radio.startReceive();
 }
 
-void Transmisor (){
-  PaqueteEnviado tx;
-  String guion = "-";
-  String pqt=NodeID+guion+tx.GPS()+guion+tx.Hora()+guion+tx.bateria()+guion+tx.Mensaje()+guion;
-  radio.transmit(pqt);  
+void Recepcion (void){
+  display.clearDisplay(); 
+  if(receivedFlag) {
+     enableInterrupt = false;
+     receivedFlag = false;
+     String paqueteRecibido="";
+     if (radio.readData(paqueteRecibido)==ERR_NONE && paqueteRecibido[0]!=NodeID && paqueteRecibido!="")Imprimir(paqueteRecibido);
+     enableInterrupt = true;
+  }
+  display.display();
 }
 
-void Receptor (){
-  String cdn="";
-  display.clearDisplay();
-  if (radio.readData(cdn)==ERR_NONE && cdn[0]!=NodeID && cdn!=""){
-   PaqueteRecibido rx;
+void Imprimir (String paqueteRecibido){
+   Paquete rx;
    display.setCursor(0,0);
    display.print("MENSAJE RECIBIDO");
    display.setCursor(0,10);
    display.print("De: ");
-   display.print(rx.ID(cdn));
+   display.print(rx.Leer (paqueteRecibido,"ID"));
    display.setCursor(0,20);
    display.print("Pos: ");
-   display.print(rx.GPS(cdn));
+   display.print(rx.Leer (paqueteRecibido,"POS"));
    display.setCursor(0,30);
    display.print("Hora: ");
-   display.print(rx.Hora(cdn));
+   display.print(rx.Leer (paqueteRecibido,"HR"));
    display.setCursor(0,40);
    display.print("Bat: ");
-   display.print(rx.Bateria(cdn));
+   display.print(rx.Leer (paqueteRecibido,"BAT"));
    display.print("%");
    display.setCursor(0,55);
-   display.print(rx.Mensaje(cdn));
-  }
-  display.display();   
+   display.print(rx.Leer (paqueteRecibido,"MSJ"));     
 }
