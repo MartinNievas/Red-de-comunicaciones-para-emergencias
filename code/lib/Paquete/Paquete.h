@@ -4,8 +4,6 @@
 #ifndef PQT_H
   #define PQT_X
 
-  String GPS(void);
-  String Hora(void);
   String Transmision(char,String);
   String Auxiliar(String,String);
   int Index(String);
