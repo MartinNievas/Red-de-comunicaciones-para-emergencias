@@ -8,11 +8,11 @@ class Bateria {
   public:
 
   Bateria(){
-    carga = nivelADC();
+    carga = nivelADC();  
   }
-
+  
   float nivelADC(){
-    float ADC = 462.5;
+    float ADC = 753.5;
     carga = ADC;
     return carga;
   }
@@ -24,7 +24,7 @@ class Bateria {
   float Restante (){
     int maxCarga = 2200;
     return (carga*100/maxCarga);
-  }
+  }    
 };
 
 #endif
