@@ -1,4 +1,4 @@
-#include "SX1276.h"
+#include <SX1276.h>
 
 SX1276 radio = new Module(18, 26, 14, 35);
 volatile bool receivedFlag = false;
