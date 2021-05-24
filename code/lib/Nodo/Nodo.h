@@ -1,7 +1,7 @@
 #include <Arduino.h>
-#include "Modulos.h"
-#include "SX1276.h"
-#include "Display.h"
+#include <Modulos.h>
+#include <SX1276.h>
+#include <Display.h>
 
 #ifndef NODO_H
   #define NODO_X
