@@ -1,4 +1,4 @@
-#include "Nodo.h"
+#include <Nodo.h>
 
 Nodo nodo;
 
