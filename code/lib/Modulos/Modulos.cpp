@@ -1,12 +1,14 @@
-#include <Modulos.h>
+#include "Modulos.h"
 
-String Pos(){
+String Posicion(){
      return "(12,451,1)";
 }
-String Hr(){
+
+String Hora(){
      return "3:11";
 }
-float Bat(){
+
+float bateria(){
     Bateria bat;
     return bat.Restante();
 }
