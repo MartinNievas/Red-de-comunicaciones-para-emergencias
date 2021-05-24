@@ -1,4 +1,4 @@
-#include "Nodo.h"
+#include <Nodo.h>
 
 void Transmision (char NodeID,String Mensaje){
   String guion = "-";
