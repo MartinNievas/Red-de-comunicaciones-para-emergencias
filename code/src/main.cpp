@@ -4,12 +4,15 @@ Nodo nodo;
 
 void setup(){
   if (nodo.Inicializar())while(1);
-  nodo.ID('B');
+  nodo.ID('A');
 }
 
+
 void loop() {
-  nodo.Leer();
-  nodo.Enviar("\"Asistencia\"");
+
+  nodo.Pantalla();
+  delay(1000);
   nodo.Escuchar();
-  delay(2000);
+  nodo.Enviar(Mensajes());
+
 }
