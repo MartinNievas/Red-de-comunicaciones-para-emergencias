@@ -1,11 +1,11 @@
 #include <Modulos.h>
 
 String Posicion(){
-     return "(12,451,1)";
+     return "(12,N;151,O)"; //latitud,longitud
 }
 
 String Hora(){
-     return "3:11";
+     return "23:11";
 }
 
 float bateria(){
