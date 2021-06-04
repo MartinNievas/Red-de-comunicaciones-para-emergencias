@@ -1,12 +1,10 @@
 #include <Nodo.h>
 
-Nodo nodo;
+Nodo nodo('A');
 
 void setup(){
   if (nodo.Inicializar())while(1);
-  nodo.ID('A');
 }
-
 
 void loop() {
 
