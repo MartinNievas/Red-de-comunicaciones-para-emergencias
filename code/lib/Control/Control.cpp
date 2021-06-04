@@ -1,20 +1,27 @@
 #include <Control.h>
 
 String CONTROL::Desglosador(String paqueteRecibido, int Index){
-  int j,i=0,k=0;  
-  char aux[6][15];
-  for(j=0;j<paqueteRecibido.length();j++){
-       if (paqueteRecibido[j]!='-'){
-          aux[i][k]=paqueteRecibido[j];
-          k++;
-       }
-       else{   
-          aux[i][k]='\0';     
-          i++;
-          k=0;
-       } 
-   } 
-  String Componente=aux[Index];
+  char aux[15];
+  int i,j=0,k=0;
+  if (Index!=0){
+      for (i=1;i<paqueteRecibido.length();i++){
+         if (paqueteRecibido[i]=='-')j++;
+         while(j==Index){
+            i++;
+            aux[k]=paqueteRecibido[i];
+            if (aux[k]=='-'){
+              aux[k]='\0';
+              j=-1;
+            }
+            k++;
+         }       
+         if (j==-1)break;
+  }}
+  else{
+      aux[k]=paqueteRecibido[Index];
+      aux[k+1]='\0';
+  }
+  String Componente = aux;
   return Componente;
 }
 
