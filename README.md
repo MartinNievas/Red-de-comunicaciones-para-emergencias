@@ -1,4 +1,4 @@
-# PPS---Red-de-comunicaciones-para-emergencias
+# Red-de-comunicaciones-para-emergencias
 
 El objetivo del trabajo es medir las capacidades prácticas de una red de comunicación distribuida, utilizando nodos de comunicación.
 Los nodos de comunicación están compuestos por el kit `Heltec WIFI Lora Kit 32 V2`, el cual, entre otros módulos, cuenta con:
