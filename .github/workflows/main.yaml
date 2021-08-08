@@ -1,6 +1,9 @@
-name: PlatformIO CI
+name: main version - PlatformIO CI
 
-on: [push]
+on:
+  push:
+    branches:
+      - main
 
 jobs:
   build:
@@ -29,4 +32,4 @@ jobs:
         pip install --upgrade platformio
     - name: Run PlatformIO
       run: |
-        pio run -d code/
+        pio run -d RadioLibVersion/code/
