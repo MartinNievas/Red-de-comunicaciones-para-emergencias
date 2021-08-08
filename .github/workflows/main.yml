@@ -29,4 +29,4 @@ jobs:
         pip install --upgrade platformio
     - name: Run PlatformIO
       run: |
-        pio run -d code/
+        pio run -d RadioLibVersion/code/
