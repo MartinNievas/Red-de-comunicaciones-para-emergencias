@@ -1,9 +1,12 @@
-name: main version - PlatformIO CI
+name: RadioLib version - PlatformIO CI
 
 on:
   push:
     branches:
+      - devel
       - main
+    paths:
+      - RadioLibVersion/**
 
 jobs:
   build:
