@@ -8,4 +8,3 @@ Los nodos de comunicación están compuestos por el kit `Heltec WIFI Lora Kit 32
 - 0.96 Inch OLED Display
 
 Para ver información de la primera parte, ir al siguiente [link](RadioLibVersion/README.md)
-
