@@ -1,0 +1,3 @@
+[submodule "MeshtasticVersion/Meshtastic-device"]
+	path = MeshtasticVersion/Meshtastic-device
+	url = https://github.com/MartinNievas/Meshtastic-device.git
